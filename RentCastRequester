@@ -1,0 +1,68 @@
+import requests
+import csv
+import os
+import time
+
+# CONFIGURATION
+API_KEY = "f67c8d8943b3441b958af4f6a45a195f"
+OUTPUT_FILE = os.path.join(os.getcwd(), "texas_rent_market_data.csv")
+
+# Representative ZIP codes across Texas (10 calls = safe)
+ZIP_CODES = ["75701", "75702", "75703", "76001", "77001", "78204", "75001", "75201", "78701", "76102"]
+
+def get_market_data(zip_code):
+    """Fetch market-level rent and trend data for a given ZIP."""
+    url = "https://api.rentcast.io/v1/markets"
+    params = {"zipCode": zip_code}  # ✅ fixed param name
+    headers = {"Accept": "application/json", "X-Api-Key": API_KEY}
+
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code != 200:
+        print(f"❌ API error for ZIP {zip_code}: {response.status_code} — {response.text}")
+        return None
+    print(f"✅ Data pulled for ZIP {zip_code}")
+    return response.json()
+
+def flatten_market_data(zip_code, data):
+    """Flatten selected fields from the market data response."""
+    # The /markets endpoint returns a list, so get the first element
+    if isinstance(data, list) and len(data) > 0:
+        data = data[0]
+    rental = data.get("rentalData", {})
+    return {
+        "ZipCode": zip_code,
+        "City": data.get("city", ""),
+        "County": data.get("county", ""),
+        "State": data.get("state", ""),
+        "LastUpdatedDate": rental.get("lastUpdatedDate", ""),
+        "AverageRent": rental.get("averageRent", ""),
+        "MedianRent": rental.get("medianRent", ""),
+        "AverageRentPerSqFt": rental.get("averageRentPerSquareFoot", ""),
+        "MedianRentPerSqFt": rental.get("medianRentPerSquareFoot", "")
+    }
+
+def main():
+    rows = []
+    for zip_code in ZIP_CODES:
+        data = get_market_data(zip_code)
+        if data:
+            row = flatten_market_data(zip_code, data)
+            rows.append(row)
+        time.sleep(1)  # stay polite with rate limits
+
+    if not rows:
+        print("⚠️ No data retrieved — check API key, subscription, or ZIP support.")
+        return
+
+    fieldnames = list(rows[0].keys())
+    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"📁 Data saved to: {OUTPUT_FILE}")
+    print(f"📊 Total rows: {len(rows)}")
+    print(f"💡 Approximate API calls used: {len(ZIP_CODES)}")
+
+if __name__ == "__main__":
+    main()
