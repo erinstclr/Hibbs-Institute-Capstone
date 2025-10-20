@@ -4,7 +4,7 @@ import os
 import time
 
 # CONFIGURATION
-API_KEY = "f67c8d8943b3441b958af4f6a45a195f"
+API_KEY = "_" #put your API key from RentCast in the quotes
 OUTPUT_FILE = os.path.join(os.getcwd(), "texas_rent_market_data.csv")
 
 # Representative ZIP codes across Texas (10 calls = safe)
