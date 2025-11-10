@@ -1,0 +1,159 @@
+import requests
+import csv
+import os
+import time
+import json
+
+# ============================================
+# CONFIGURATION
+# ============================================
+API_KEY = "Put Key Here"
+OUTPUT_FILE = os.path.join(os.getcwd(), "texas_rent_market_data.csv")
+ZIP_FILE = os.path.join(os.getcwd(), "texas_zipcodes.csv")
+PROGRESS_FILE = os.path.join(os.getcwd(), "progress.json")
+ERROR_LOG = os.path.join(os.getcwd(), "errors.log")
+
+DELAY_BETWEEN_CALLS = 0.6   # seconds between API calls
+RETRY_LIMIT = 3
+
+# ============================================
+# STEP 1: Load ZIP Codes
+# ============================================
+def load_texas_zipcodes():
+    zip_data = []
+    with open(ZIP_FILE, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            zip_data.append({
+                "ZipCode": row["zip"].strip(),
+                "City": row["city"].strip(),
+                "State": row.get("state", "TX").strip()
+            })
+    return zip_data
+
+# ============================================
+# STEP 2: API Call per ZIP
+# ============================================
+def get_market_data(zip_code):
+    url = "https://api.rentcast.io/v1/markets"
+    params = {"zipCode": zip_code}
+    headers = {"Accept": "application/json", "X-Api-Key": API_KEY}
+
+    for attempt in range(RETRY_LIMIT):
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+
+            # Handle known cases
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
+                print(f"⚠️ No data for ZIP {zip_code} (404 Not Found)")
+                return None
+            elif response.status_code == 429:
+                print("⏳ Rate limit hit — waiting 60 seconds...")
+                time.sleep(60)
+                continue
+            else:
+                print(f"❌ API error {response.status_code} for {zip_code}: {response.text}")
+                return None
+
+        except requests.RequestException as e:
+            print(f"⚠️ Network error for {zip_code} (Attempt {attempt+1}/{RETRY_LIMIT}): {e}")
+            time.sleep(2)
+
+    return None
+
+# ============================================
+# STEP 3: Flatten API Data
+# ============================================
+def flatten_market_data(zip_info, data):
+    zip_code = zip_info["ZipCode"]
+    city = zip_info["City"]
+    state = zip_info["State"]
+
+    if isinstance(data, list) and len(data) > 0:
+        data = data[0]
+    rental = data.get("rentalData", {})
+
+    return {
+        "ZipCode": zip_code,
+        "City": city,
+        "State": state,
+        "LastUpdatedDate": rental.get("lastUpdatedDate", ""),
+        "AverageRent": rental.get("averageRent", ""),
+        "MedianRent": rental.get("medianRent", ""),
+        "AverageRentPerSqFt": rental.get("averageRentPerSquareFoot", ""),
+        "MedianRentPerSqFt": rental.get("medianRentPerSquareFoot", "")
+    }
+
+# ============================================
+# STEP 4: Progress Save/Load
+# ============================================
+def save_progress(done_zips):
+    with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+        json.dump({"done_zips": list(done_zips)}, f)
+
+def load_progress():
+    if os.path.exists(PROGRESS_FILE):
+        with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
+            return set(json.load(f).get("done_zips", []))
+    return set()
+
+# ============================================
+# STEP 5: Main Loop
+# ============================================
+def main():
+    zip_list = load_texas_zipcodes()
+    done_zips = load_progress()
+    rows = []
+
+    print(f"📦 Found {len(zip_list)} ZIP codes.")
+    print(f"▶️ Resuming progress: {len(done_zips)} already done.\n")
+
+    # Load existing data if present
+    if os.path.exists(OUTPUT_FILE):
+        with open(OUTPUT_FILE, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+    for i, zip_info in enumerate(zip_list, start=1):
+        zip_code = zip_info["ZipCode"]
+        if zip_code in done_zips:
+            continue
+
+        data = get_market_data(zip_code)
+        if data:
+            row = flatten_market_data(zip_info, data)
+            rows.append(row)
+            print(f"✅ ({len(done_zips)+1}/{len(zip_list)}) {zip_code} — {zip_info['City']}")
+        else:
+            with open(ERROR_LOG, "a", encoding="utf-8") as err:
+                err.write(f"{zip_code},{zip_info['City']},No data or error\n")
+
+        done_zips.add(zip_code)
+
+        # Save progress every 10 ZIPs
+        if len(done_zips) % 10 == 0:
+            save_progress(done_zips)
+            if rows:
+                with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+                    writer.writeheader()
+                    writer.writerows(rows)
+            print("💾 Progress saved.")
+        time.sleep(DELAY_BETWEEN_CALLS)
+
+    # Final save
+    if rows:
+        with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+    save_progress(done_zips)
+
+    print(f"\n📁 Data saved to: {OUTPUT_FILE}")
+    print(f"📊 Processed ZIPs: {len(done_zips)}")
+    print(f"⚙️ Errors logged in: {ERROR_LOG}")
+
+if __name__ == "__main__":
+    main()
