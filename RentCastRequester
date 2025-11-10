@@ -7,7 +7,7 @@ import json
 # ============================================
 # CONFIGURATION
 # ============================================
-API_KEY = "f3ac30b8896743689167d375ebb63d84"
+API_KEY = "Put Key Here"
 OUTPUT_FILE = os.path.join(os.getcwd(), "texas_rent_market_data.csv")
 ZIP_FILE = os.path.join(os.getcwd(), "texas_zipcodes.csv")
 PROGRESS_FILE = os.path.join(os.getcwd(), "progress.json")
