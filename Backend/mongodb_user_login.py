@@ -30,7 +30,8 @@ except Exception as e:
     exit()
 
 # Use the database
-collection = db["TestHomePrices"]
+collection = db["Rentcast_Zipcodes"]
 
 print(f"\nReady to use collection: {collection.name}")
+
 
