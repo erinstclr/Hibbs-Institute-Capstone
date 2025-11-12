@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 # MongoDB Connection
-client = MongoClient("mongodb+srv://User1:1234@hibbstestcluster.ik2lmok.mongodb.net/")
+client = MongoClient("mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbstestcluster.ik2lmok.mongodb.net/")
 db = client["test"]
 collection = db["TestHomePrices"]
 
@@ -41,3 +41,4 @@ collection.insert_many(data)
 
 # Verify
 print(f"Successfully validated and inserted {len(data)} records into MongoDB.")
+
