@@ -8,8 +8,8 @@ username = input("Username: ")
 password = getpass.getpass("Password (hidden): ")
 
 # Build the connection string
-cluster_url = "hibbstestcluster.ik2lmok.mongodb.net"  # Cluster address
-database_name = "test"
+cluster_url = "hibbssponsoredproject.unhqzaj.mongodb.net"  # Cluster address
+database_name = "Rentcast"
 
 uri = f"mongodb+srv://{username}:{password}@{cluster_url}/?retryWrites=true&w=majority"
 
@@ -33,3 +33,4 @@ except Exception as e:
 collection = db["TestHomePrices"]
 
 print(f"\nReady to use collection: {collection.name}")
+
