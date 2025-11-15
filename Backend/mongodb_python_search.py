@@ -1,9 +1,9 @@
 from pymongo import MongoClient
 
 # MongoDB connection
-client = MongoClient("mongodb+srv://User1:1234@hibbstestcluster.ik2lmok.mongodb.net/")
-db = client["test"]
-collection = db["TestHomePrices"]
+client = MongoClient("mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbssponsoredproject.unhqzaj.mongodb.net/")
+db = client["Rentcast"]
+collection = db["Rentcast_Zipcodes"]
 
 print("Search Home Prices ")
 print("(Leave any field blank to skip it.)\n")
@@ -80,3 +80,4 @@ for doc in results:
 if not found_any:
 
     print("\n No documents found matching your search.")
+

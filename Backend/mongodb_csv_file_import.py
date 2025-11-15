@@ -3,9 +3,9 @@ import pandas as pd
 import os
 
 # MongoDB Connection
-client = MongoClient("mongodb+srv://User1:1234@hibbstestcluster.ik2lmok.mongodb.net/")
-db = client["test"]
-collection = db["TestHomePrices"]
+client = MongoClient("mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbssponsoredproject.unhqzaj.mongodb.net/")
+db = client["Rentcast"]
+collection = db["Rentcast_Zipcodes"]
 
 print("Input the CSV file name (include .csv extension):")
 csv_file_path = input("csv file: ").strip()
