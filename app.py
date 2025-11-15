@@ -112,6 +112,43 @@ def signup():
     return render_template("SignUp.html")
 
 
+@app.route("/forgot_password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        new_password = request.form.get("new_password") or ""
+        confirm_password = request.form.get("confirm_password") or ""
+
+        if not username:
+            return render_template("ForgotPassword.html",
+                                   error="Please enter your username.")
+
+        user = users_collection.find_one({"username": username})
+        if not user:
+            return render_template("ForgotPassword.html",
+                                   error="No account found with that username.")
+
+        if not new_password or not confirm_password:
+            return render_template("ForgotPassword.html",
+                                   error="Please enter and confirm your new password.")
+
+        if new_password != confirm_password:
+            return render_template("ForgotPassword.html",
+                                   error="Passwords do not match.")
+
+        # ⚠ For real production apps, hash the password!
+        users_collection.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"password": new_password}}
+        )
+
+        # Show success message on the same page
+        return render_template("ForgotPassword.html",
+                               success="Password updated successfully. You can now log in.")
+
+    return render_template("ForgotPassword.html")
+
+
 @app.route("/home", methods=["GET", "POST"])
 def home():
     """Main search interface."""
@@ -143,19 +180,83 @@ def home():
                 session["zip_list"].remove(z)
                 session.modified = True
 
-        elif action == "search_all":
-            zips = session.get("zip_list", [])
-            if not zips:
-                error = "Add at least one ZIP before searching."
+        # ---- NEW: quick search when clicking on a ZIP button ----
+        elif action and action.startswith("search_single_"):
+            selected_zip = action.replace("search_single_", "")
+
+            api_key = session.get("api_key")
+            if not api_key:
+                return render_template(
+                    "SearchPage.html",
+                    zip_list=session["zip_list"],
+                    error="Missing RentCast API key."
+                )
+
+            result = fetch_or_cache_zip(selected_zip, api_key)
+
+            # Build chart data for a single ZIP
+            if result.get("error"):
+                labels = []
+                avg_rents = []
+                median_rents = []
+                multi_results = [result]
             else:
-                api_key = session.get("api_key")
-                if not api_key:
+                labels = [str(result.get("ZipCode"))]
+                avg_rents = [result.get("AverageRent")]
+                median_rents = [result.get("MedianRent")]
+                multi_results = [result]
+
+            return render_template(
+                "Results.html",
+                multi_results=multi_results,
+                labels=labels,
+                avg_rents=avg_rents,
+                median_rents=median_rents
+            )
+
+        elif action == "search_all":
+            # use typed ZIP if present, otherwise use the saved list
+            typed_zip = (request.form.get("zipcode") or "").strip()
+
+            if typed_zip:
+                # validate typed ZIP and search ONLY this one
+                if not ZIP_RE.match(typed_zip):
+                    error = "Please enter a valid 5-digit ZIP code."
                     return render_template("SearchPage.html",
                                            zip_list=session["zip_list"],
-                                           error="Missing RentCast API key.")
-                results = [fetch_or_cache_zip(z, api_key) for z in zips]
-                return render_template("Results.html", multi_results=results)
+                                           error=error)
+                zips = [typed_zip]
+            else:
+                # no ZIP typed, use all ZIPs in the list
+                zips = session.get("zip_list", [])
 
+            if not zips:
+                error = "Add at least one ZIP or type a ZIP before searching."
+                return render_template("SearchPage.html",
+                                       zip_list=session["zip_list"],
+                                       error=error)
+
+            api_key = session.get("api_key")
+            if not api_key:
+                return render_template("SearchPage.html",
+                                       zip_list=session["zip_list"],
+                                       error="Missing RentCast API key.")
+
+            results = [fetch_or_cache_zip(z, api_key) for z in zips]
+
+            # histogram/bar chart data
+            valid_results = [r for r in results if not r.get("error")]
+            labels = [str(r.get("ZipCode")) for r in valid_results]
+            avg_rents = [r.get("AverageRent") for r in valid_results]
+            median_rents = [r.get("MedianRent") for r in valid_results]
+
+            return render_template("Results.html",
+                                   multi_results=results,
+                                   labels=labels,
+                                   avg_rents=avg_rents,
+                                   median_rents=median_rents)
+
+    # GET or fallthrough -> show search page
     return render_template("SearchPage.html", zip_list=session["zip_list"], error=error)
 
 
