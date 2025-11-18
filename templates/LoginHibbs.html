@@ -15,16 +15,6 @@
             --link-color: #005f73;
         }
 
-        /* DARK MODE VARIABLES */
-        body.dark {
-            --bg-gradient: linear-gradient(135deg, #072022, #0b3b40);
-            --card-bg: #0f2526;
-            --text-color: #e8f5f6;
-            --input-bg: #15393b;
-            --input-border: #2e5b5f;
-            --link-color: #57d3cc;
-        }
-
         body {
             font-family: 'Segoe UI', sans-serif;
             height: 100vh;
@@ -45,12 +35,6 @@
             border-radius: 14px;
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25);
             transition: background 0.4s ease, color 0.4s ease;
-            animation: fadeIn 0.5s ease-in-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(15px); }
-            to { opacity: 1; transform: translateY(0); }
         }
 
         h1 {
@@ -72,7 +56,6 @@
             border: 1px solid var(--input-border);
             background: var(--input-bg);
             color: var(--text-color);
-            transition: 0.2s ease;
         }
 
         input:focus {
@@ -100,20 +83,10 @@
             border: none;
             border-radius: 10px;
             cursor: pointer;
-            transition: background 0.2s ease;
         }
 
         button:hover {
             background: #007f83;
-        }
-
-        .toggle-dark {
-            margin-bottom: 15px;
-            text-align: right;
-            cursor: pointer;
-            font-size: 15px;
-            color: var(--link-color);
-            font-weight: 600;
         }
 
         .signup-link {
@@ -139,54 +112,42 @@
         }
     </style>
 </head>
-
 <body>
 
-    <div class="card">
+<div class="card">
 
-        <!-- Dark Mode Toggle -->
-        <div class="toggle-dark" onclick="toggleDarkMode()">
-            🌙 Toggle Dark Mode
+    <h1>🔑 Login</h1>
+
+    <form method="POST">
+        <input type="text" name="username" placeholder="Username" required>
+
+        <div class="input-wrapper">
+            <input type="password" id="password" name="password" placeholder="Password" required>
+            <span class="toggle-password" onclick="togglePassword()">👁</span>
         </div>
 
-        <h1>🔑 Login</h1>
+        <button type="submit">Log In</button>
 
-        <form method="POST">
-            <input type="text" name="username" placeholder="Username" required>
+        <p style="margin-top: 12px; text-align: right;">
+            <a href="{{ url_for('forgot_password') }}">Forgot your password?</a>
+        </p>
+    </form>
 
-            <div class="input-wrapper">
-                <input type="password" id="password" name="password" placeholder="Password" required>
-                <span class="toggle-password" onclick="togglePassword()">👁</span>
-            </div>
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
 
-            <button type="submit">Log In</button>
-
-            <!-- ⭐ FORGOT PASSWORD LINK ⭐ -->
-            <p style="margin-top: 12px; text-align: right;">
-                <a href="{{ url_for('forgot_password') }}">Forgot your password?</a>
-            </p>
-        </form>
-
-        {% if error %}
-            <p class="error">{{ error }}</p>
-        {% endif %}
-
-        <div class="signup-link">
-            <p>Don't have an account? <a href="{{ url_for('signup') }}">Sign up here</a></p>
-        </div>
-
+    <div class="signup-link">
+        <p>Don't have an account? <a href="{{ url_for('signup') }}">Sign up here</a></p>
     </div>
+</div>
 
-    <script>
-        function togglePassword() {
-            const pwd = document.getElementById("password");
-            pwd.type = pwd.type === "password" ? "text" : "password";
-        }
-
-        function toggleDarkMode() {
-            document.body.classList.toggle("dark");
-        }
-    </script>
+<script>
+    function togglePassword() {
+        const pwd = document.getElementById("password");
+        pwd.type = pwd.type === "password" ? "text" : "password";
+    }
+</script>
 
 </body>
 </html>

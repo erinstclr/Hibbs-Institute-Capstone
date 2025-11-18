@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- Flask Setup ---
 app = Flask(__name__)
-app.secret_key = "your_secret_key"  # Change in production!
+app.secret_key = "enter your api key"  # Change in production!
 
 # --- Load environment variables ---
 load_dotenv()
@@ -21,6 +21,14 @@ users_collection = db["Users"]
 
 # --- Regex for ZIP validation ---
 ZIP_RE = re.compile(r"^\d{5}$")
+
+# --- Security Questions (keys must match <option value=""> in signup template) ---
+SECURITY_QUESTIONS = {
+    "pet": "What is the name of your first pet?",
+    "school": "What is the name of your elementary school?",
+    "city": "In what city were you born?",
+    "nickname": "What was your childhood nickname?"
+}
 
 # --- RentCast API call + MongoDB caching ---
 def fetch_or_cache_zip(zip_code, api_key):
@@ -71,8 +79,8 @@ def fetch_or_cache_zip(zip_code, api_key):
 def login():
     """Login page — users log in with username and password."""
     if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
+        username = request.form.get("username") or ""
+        password = request.form.get("password") or ""
 
         user = users_collection.find_one({"username": username, "password": password})
         if user:
@@ -87,25 +95,36 @@ def login():
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-    """Signup page — new users enter username, password, and RentCast API key."""
+    """Signup page — new users enter username, password, RentCast API key, and security question."""
     if request.method == "POST":
-        username = request.form["username"].strip()
-        password = request.form["password"]
-        confirm = request.form["confirm_password"]
-        api_key = request.form["api_key"].strip()
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        confirm = request.form.get("confirm_password") or ""
+        api_key = (request.form.get("api_key") or "").strip()
+        security_question = request.form.get("security_question") or ""
+        security_answer = (request.form.get("security_answer") or "").strip()
 
+        # Basic validations
+        if not username:
+            return render_template("SignUp.html", error="Username is required!")
         if password != confirm:
             return render_template("SignUp.html", error="Passwords do not match!")
         if users_collection.find_one({"username": username}):
             return render_template("SignUp.html", error="Username already exists!")
         if not api_key:
             return render_template("SignUp.html", error="Please provide your RentCast API key!")
+        if not security_question:
+            return render_template("SignUp.html", error="Please select a security question.")
+        if not security_answer:
+            return render_template("SignUp.html", error="Please provide an answer to your security question.")
 
-        # Store user in DB (⚠️ plaintext password — hash this for production!)
+        # Store user in DB (plaintext for project; hash in real apps)
         users_collection.insert_one({
             "username": username,
             "password": password,
-            "api_key": api_key
+            "api_key": api_key,
+            "security_question": security_question,   # store the key (e.g., "pet")
+            "security_answer": security_answer        # store the answer
         })
         return redirect(url_for("login"))
 
@@ -114,39 +133,114 @@ def signup():
 
 @app.route("/forgot_password", methods=["GET", "POST"])
 def forgot_password():
+    """
+    2-step flow:
+    1) User enters username -> we show their security question.
+    2) User answers + enters new password -> we verify & update.
+    """
     if request.method == "POST":
-        username = (request.form.get("username") or "").strip()
-        new_password = request.form.get("new_password") or ""
-        confirm_password = request.form.get("confirm_password") or ""
+        step = request.form.get("step", "lookup")
 
-        if not username:
-            return render_template("ForgotPassword.html",
-                                   error="Please enter your username.")
+        # --- STEP 1: USERNAME LOOKUP ---
+        if step == "lookup":
+            username = (request.form.get("username") or "").strip()
 
-        user = users_collection.find_one({"username": username})
-        if not user:
-            return render_template("ForgotPassword.html",
-                                   error="No account found with that username.")
+            if not username:
+                return render_template("ForgotPassword.html",
+                                       error="Please enter your username.",
+                                       show_reset=False)
 
-        if not new_password or not confirm_password:
-            return render_template("ForgotPassword.html",
-                                   error="Please enter and confirm your new password.")
+            user = users_collection.find_one({"username": username})
+            if not user:
+                return render_template("ForgotPassword.html",
+                                       error="No account found with that username.",
+                                       show_reset=False)
 
-        if new_password != confirm_password:
-            return render_template("ForgotPassword.html",
-                                   error="Passwords do not match.")
+            question_key = user.get("security_question")
+            question_text = SECURITY_QUESTIONS.get(question_key, "Your security question.")
 
-        # ⚠ For real production apps, hash the password!
-        users_collection.update_one(
-            {"_id": user["_id"]},
-            {"$set": {"password": new_password}}
-        )
+            # Show the question + second step inputs
+            return render_template(
+                "ForgotPassword.html",
+                username=username,
+                question_text=question_text,
+                show_reset=True
+            )
 
-        # Show success message on the same page
-        return render_template("ForgotPassword.html",
-                               success="Password updated successfully. You can now log in.")
+        # --- STEP 2: SECURITY ANSWER + NEW PASSWORD ---
+        elif step == "reset":
+            username = (request.form.get("username") or "").strip()
+            security_answer = (request.form.get("security_answer") or "").strip()
+            new_password = request.form.get("new_password") or ""
+            confirm_password = request.form.get("confirm_password") or ""
 
-    return render_template("ForgotPassword.html")
+            if not username:
+                return render_template("ForgotPassword.html",
+                                       error="Missing username. Please start again.",
+                                       show_reset=False)
+
+            user = users_collection.find_one({"username": username})
+            if not user:
+                return render_template("ForgotPassword.html",
+                                       error="No account found with that username.",
+                                       show_reset=False)
+
+            question_key = user.get("security_question")
+            question_text = SECURITY_QUESTIONS.get(question_key, "Your security question.")
+
+            # Check security answer
+            stored_answer = (user.get("security_answer") or "").strip()
+            if not security_answer:
+                return render_template(
+                    "ForgotPassword.html",
+                    error="Please enter your security answer.",
+                    username=username,
+                    question_text=question_text,
+                    show_reset=True
+                )
+
+            if security_answer != stored_answer:
+                return render_template(
+                    "ForgotPassword.html",
+                    error="Security answer is incorrect.",
+                    username=username,
+                    question_text=question_text,
+                    show_reset=True
+                )
+
+            # Check passwords
+            if not new_password or not confirm_password:
+                return render_template(
+                    "ForgotPassword.html",
+                    error="Please enter and confirm your new password.",
+                    username=username,
+                    question_text=question_text,
+                    show_reset=True
+                )
+
+            if new_password != confirm_password:
+                return render_template(
+                    "ForgotPassword.html",
+                    error="Passwords do not match.",
+                    username=username,
+                    question_text=question_text,
+                    show_reset=True
+                )
+
+            # Update password
+            users_collection.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"password": new_password}}
+            )
+
+            return render_template(
+                "ForgotPassword.html",
+                success="Password updated successfully. You can now log in.",
+                show_reset=False
+            )
+
+    # GET: just show username form
+    return render_template("ForgotPassword.html", show_reset=False)
 
 
 @app.route("/home", methods=["GET", "POST"])
@@ -180,7 +274,6 @@ def home():
                 session["zip_list"].remove(z)
                 session.modified = True
 
-        # ---- NEW: quick search when clicking on a ZIP button ----
         elif action and action.startswith("search_single_"):
             selected_zip = action.replace("search_single_", "")
 
@@ -194,7 +287,6 @@ def home():
 
             result = fetch_or_cache_zip(selected_zip, api_key)
 
-            # Build chart data for a single ZIP
             if result.get("error"):
                 labels = []
                 avg_rents = []
@@ -215,11 +307,9 @@ def home():
             )
 
         elif action == "search_all":
-            # use typed ZIP if present, otherwise use the saved list
             typed_zip = (request.form.get("zipcode") or "").strip()
 
             if typed_zip:
-                # validate typed ZIP and search ONLY this one
                 if not ZIP_RE.match(typed_zip):
                     error = "Please enter a valid 5-digit ZIP code."
                     return render_template("SearchPage.html",
@@ -227,7 +317,6 @@ def home():
                                            error=error)
                 zips = [typed_zip]
             else:
-                # no ZIP typed, use all ZIPs in the list
                 zips = session.get("zip_list", [])
 
             if not zips:
@@ -244,7 +333,6 @@ def home():
 
             results = [fetch_or_cache_zip(z, api_key) for z in zips]
 
-            # histogram/bar chart data
             valid_results = [r for r in results if not r.get("error")]
             labels = [str(r.get("ZipCode")) for r in valid_results]
             avg_rents = [r.get("AverageRent") for r in valid_results]
@@ -256,7 +344,6 @@ def home():
                                    avg_rents=avg_rents,
                                    median_rents=median_rents)
 
-    # GET or fallthrough -> show search page
     return render_template("SearchPage.html", zip_list=session["zip_list"], error=error)
 
 
@@ -266,7 +353,6 @@ def logout():
     return redirect(url_for("login"))
 
 
-# --- Optional JSON API for frontend integration ---
 @app.route("/api/search_zip/<zipcode>")
 def api_search_zip(zipcode):
     api_key = session.get("api_key")
