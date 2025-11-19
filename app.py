@@ -5,24 +5,36 @@ from dotenv import load_dotenv
 import requests, os, re
 from datetime import datetime
 
-# --- Flask Setup ---
+
+# -----------------------------
+#    Flask Setup
+# -----------------------------
 app = Flask(__name__)
-app.secret_key = "enter your api key"  # Change in production!
+app.secret_key = "Enter your API key here"   # change for production
 
-# --- Load environment variables ---
-load_dotenv()
+# ------------------------------------------------------------
+#   Hardcoded Configuration because the env was giving issues
+# ------------------------------------------------------------
+MONGO_URI = "mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbssponsoredproject.unhqzaj.mongodb.net/"
+RENTCAST_API_KEY = "f3ac30b8896743689167d375ebb63d84"
 
-# --- MongoDB Connection ---
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://User1:1234@hibbstestcluster.ik2lmok.mongodb.net/")
+# -----------------------------
+#   MongoDB Setup (correct DB)
+# -----------------------------
 mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
-db = mongo_client["test"]
-collection = db["TestHomePrices"]
-users_collection = db["Users"]
 
-# --- Regex for ZIP validation ---
+db = mongo_client["Rentcast"]                 # <-- CORRECT DATABASE
+collection = db["Rentcast_Zipcodes"]          # <-- CORRECT COLLECTION
+users_collection = db["Users"]                # <-- Store users here
+
+#--------------------------------
+#     Regex for ZIP validation
+#--------------------------------
 ZIP_RE = re.compile(r"^\d{5}$")
 
-# --- Security Questions (keys must match <option value=""> in signup template) ---
+# -----------------------------------------------------------------------------
+#  Security Questions (keys must match <option value=""> in signup template)
+# -----------------------------------------------------------------------------
 SECURITY_QUESTIONS = {
     "pet": "What is the name of your first pet?",
     "school": "What is the name of your elementary school?",
@@ -30,7 +42,9 @@ SECURITY_QUESTIONS = {
     "nickname": "What was your childhood nickname?"
 }
 
-# --- RentCast API call + MongoDB caching ---
+# -------------------------------------------------
+#     RentCast API call + MongoDB caching
+# -------------------------------------------------
 def fetch_or_cache_zip(zip_code, api_key):
     """Fetch rent data from MongoDB cache or RentCast API if not present."""
     # Try to find existing data
@@ -65,7 +79,9 @@ def fetch_or_cache_zip(zip_code, api_key):
             "AverageRentPerSqFt": rental.get("averageRentPerSquareFoot"),
             "MedianRentPerSqFt": rental.get("medianRentPerSquareFoot")
         }
-        # Cache in MongoDB
+        #----------------------------------------
+        #        Cache/Store in MongoDB
+        #----------------------------------------
         collection.insert_one(doc)
         doc["_id"] = str(doc["_id"])
         return doc
@@ -73,7 +89,9 @@ def fetch_or_cache_zip(zip_code, api_key):
         return {"error": "No data found for that ZIP."}
 
 
-# ---------- ROUTES ----------
+# ------------------------------------------
+#            AUTHENTICATION ROUTES
+# ------------------------------------------
 
 @app.route("/", methods=["GET", "POST"])
 def login():
@@ -104,7 +122,9 @@ def signup():
         security_question = request.form.get("security_question") or ""
         security_answer = (request.form.get("security_answer") or "").strip()
 
-        # Basic validations
+
+        #--------  Basic validations   ---------
+
         if not username:
             return render_template("SignUp.html", error="Username is required!")
         if password != confirm:
@@ -249,7 +269,9 @@ def home():
     if "user" not in session:
         return redirect(url_for("login"))
 
-    # initialize ZIP list
+    #---------------------------------
+    #        initialize ZIP list
+    #---------------------------------
     if "zip_list" not in session:
         session["zip_list"] = []
 
