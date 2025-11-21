@@ -3,11 +3,100 @@ import csv
 import os
 import time
 import json
+import pandas as pd
+from pymongo import MongoClient
+
+# ========================================
+# MERGE DATABASE
+# ========================================
+
+
+def merge_csv_data():
+
+    original_file = "texas_rent_market_data.csv"
+    output_file = "texas_rent_market_data_updated.csv"
+
+    # Load both files
+    main_df = pd.read_csv("texas_rent_market_data.csv")
+    update_df = pd.read_csv("texas_zipcode_list.csv")
+
+    # Add County column to main csv (3rd column)
+    if "County" not in main_df.columns:
+        main_df.insert(2, "County", None)
+
+    # Merge on ZipCode
+    merged_df = pd.merge(main_df, update_df, on="ZipCode", how="left", suffixes=("", "_update"))
+
+    # Update the columns
+    merged_df["City"] = merged_df["City"].combine_first(merged_df["City_update"])
+    merged_df["County"] = merged_df["County"].combine_first(merged_df["County_update"])
+    merged_df["State"] = merged_df["State"].combine_first(merged_df["State_update"])
+
+    # Drop the extra columns
+    merged_df = merged_df.drop(columns=["City_update"])
+    merged_df = merged_df.drop(columns=["County_update"])
+    merged_df = merged_df.drop(columns=["State_update"])
+
+    # Save back to CSV
+    merged_df.to_csv(output_file, index=False)
+
+        # Delete the original file
+    if os.path.exists(original_file):
+        os.remove(original_file)
+        print(f"Deleted original file: {original_file}")
+    else:
+        print("Original file not found. Nothing to delete.")
+
+    print(f"Updated CSV saved as {output_file}")
+
+
+def mongodb_file_upload():
+
+    # MongoDB Connection
+    client = MongoClient("mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbssponsoredproject.unhqzaj.mongodb.net/")
+    db = client["Rentcast"]
+    collection = db["Rentcast_Zipcodes"]
+
+    print("Input the CSV file name is: texas_rent_market_data_updated.csv")
+    csv_file_path = "texas_rent_market_data_updated.csv"
+
+    # Validate the CSV File
+    if not os.path.exists(csv_file_path):
+        print(f"Error: File '{csv_file_path}' not found.")
+        exit()
+
+    try:
+        df = pd.read_csv(csv_file_path)
+    except Exception as e:
+        print(f"Error reading CSV file: {e}")
+        exit()
+
+    # Define required columns
+    required_columns = {"ZipCode", "City", "County", "State", "LastUpdatedDate", "AverageRent", "MedianRent", "AverageRentPerSqFt", "MedianRentPerSqFt"}
+
+    # Check for missing columns
+    missing = required_columns - set(df.columns)
+    if missing:
+        print(f"Error: CSV file is missing required column(s): {', '.join(missing)}")
+        exit()
+
+    # Check for empty data
+    if df.empty:
+        print("Error: CSV file is empty, no records to insert.")
+        exit()
+
+    # Insert into MongoDB
+    data = df.to_dict(orient="records")
+    collection.insert_many(data)
+
+    # Verify
+    print(f"Successfully validated and inserted {len(data)} records into MongoDB.")
 
 # ============================================
 # CONFIGURATION
 # ============================================
-API_KEY = "Put Key Here"
+
+API_KEY = "f3ac30b8896743689167d375ebb63d84"
 OUTPUT_FILE = os.path.join(os.getcwd(), "texas_rent_market_data.csv")
 ZIP_FILE = os.path.join(os.getcwd(), "texas_zipcodes.csv")
 PROGRESS_FILE = os.path.join(os.getcwd(), "progress.json")
@@ -17,23 +106,27 @@ DELAY_BETWEEN_CALLS = 0.6   # seconds between API calls
 RETRY_LIMIT = 3
 
 # ============================================
-# STEP 1: Load ZIP Codes
+# Load ZIP Codes
 # ============================================
+
 def load_texas_zipcodes():
     zip_data = []
-    with open(ZIP_FILE, newline='', encoding='utf-8') as f:
+    with open('texas_zipcodes.csv', 'r', encoding='latin-1') as f:
         reader = csv.DictReader(f)
+
+
         for row in reader:
             zip_data.append({
-                "ZipCode": row["zip"].strip(),
-                "City": row["city"].strip(),
-                "State": row.get("state", "TX").strip()
+                "ZipCode": row["ZIP Code"].strip(),
+                "City": row["City"].strip(),
+                "State": row.get("State", "TX").strip()
             })
     return zip_data
 
 # ============================================
-# STEP 2: API Call per ZIP
+# API Call per ZIP
 # ============================================
+
 def get_market_data(zip_code):
     url = "https://api.rentcast.io/v1/markets"
     params = {"zipCode": zip_code}
@@ -64,8 +157,9 @@ def get_market_data(zip_code):
     return None
 
 # ============================================
-# STEP 3: Flatten API Data
+# Flatten API Data
 # ============================================
+
 def flatten_market_data(zip_info, data):
     zip_code = zip_info["ZipCode"]
     city = zip_info["City"]
@@ -87,8 +181,9 @@ def flatten_market_data(zip_info, data):
     }
 
 # ============================================
-# STEP 4: Progress Save/Load
+# Progress Save/Load
 # ============================================
+
 def save_progress(done_zips):
     with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
         json.dump({"done_zips": list(done_zips)}, f)
@@ -100,8 +195,9 @@ def load_progress():
     return set()
 
 # ============================================
-# STEP 5: Main Loop
+# Main Loop
 # ============================================
+
 def main():
     zip_list = load_texas_zipcodes()
     done_zips = load_progress()
@@ -154,6 +250,18 @@ def main():
     print(f"\n📁 Data saved to: {OUTPUT_FILE}")
     print(f"📊 Processed ZIPs: {len(done_zips)}")
     print(f"⚙️ Errors logged in: {ERROR_LOG}")
+
+
+    # Add the zipcodes from the key
+    merge_csv_data()
+    confirm_upload = input("Would you like to upload the data to the Database? Y/N: ")
+
+    # Upload files to database
+    if confirm_upload.strip().lower() == "y":
+        mongodb_file_upload()
+    else:
+        print(f"File was not uploaded to the database.")
+
 
 if __name__ == "__main__":
     main()
