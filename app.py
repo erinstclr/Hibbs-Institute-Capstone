@@ -1,40 +1,49 @@
 from flask import Flask, render_template, request, redirect, url_for, session
 from pymongo import MongoClient
 import certifi
-from dotenv import load_dotenv
-import requests, os, re
+import requests
+import re
 from datetime import datetime
+from dotenv import load_dotenv
+import os
 
+# ===========================================================
+#   Load environment variables
+# ===========================================================
+load_dotenv()  # Loads the .env file
+
+MONGO_URI = os.getenv("MONGO_URI")
+RENTCAST_API_KEY = os.getenv("RENTCAST_API_KEY")
+SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "fallback_secret_key")
+
+# Safety checks (optional but helpful)
+if not MONGO_URI:
+    raise ValueError("❌ Missing MONGO_URI in your .env file")
+
+if not RENTCAST_API_KEY:
+    raise ValueError("❌ Missing RENTCAST_API_KEY in your .env file")
 
 # -----------------------------
 #    Flask Setup
 # -----------------------------
 app = Flask(__name__)
-app.secret_key = "Enter your API key here"   # change for production
-
-# ------------------------------------------------------------
-#   Hardcoded Configuration because the env was giving issues
-# ------------------------------------------------------------
-MONGO_URI = "mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbssponsoredproject.unhqzaj.mongodb.net/"
-RENTCAST_API_KEY = "f3ac30b8896743689167d375ebb63d84"
+app.secret_key = SECRET_KEY  # Loaded from .env
 
 # -----------------------------
 #   MongoDB Setup (correct DB)
 # -----------------------------
 mongo_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 
-db = mongo_client["Rentcast"]                 # <-- CORRECT DATABASE
-collection = db["Rentcast_Zipcodes"]          # <-- CORRECT COLLECTION
-users_collection = db["Users"]                # <-- Store users here
+db = mongo_client["Rentcast"]
+collection = db["Rentcast_Zipcodes"]
+users_collection = db["Users"]
 
-#--------------------------------
-#     Regex for ZIP validation
-#--------------------------------
+# ZIP validation
 ZIP_RE = re.compile(r"^\d{5}$")
 
-# -----------------------------------------------------------------------------
-#  Security Questions (keys must match <option value=""> in signup template)
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------
+#  Security Questions (keys must match <option value=""> in signup
+# -----------------------------------------------------------------
 SECURITY_QUESTIONS = {
     "pet": "What is the name of your first pet?",
     "school": "What is the name of your elementary school?",
@@ -42,119 +51,133 @@ SECURITY_QUESTIONS = {
     "nickname": "What was your childhood nickname?"
 }
 
-# -------------------------------------------------
-#     RentCast API call + MongoDB caching
-# -------------------------------------------------
-def fetch_or_cache_zip(zip_code, api_key):
-    """Fetch rent data from MongoDB cache or RentCast API if not present."""
-    # Try to find existing data
+
+# ===========================================================
+#   RentCast API Fetch + MongoDB Cache
+# ===========================================================
+def fetch_or_cache_zip(zip_code: str):
+    """Fetch rent data from cache or RentCast API."""
+
+    # 1️⃣ Look in MongoDB first
     doc = collection.find_one({"ZipCode": int(zip_code)})
     if doc:
-        print(f"✅ Using cached data for {zip_code}")
         doc["_id"] = str(doc["_id"])
+        print(f"✓ Using cached data for ZIP {zip_code}")
         return doc
 
-    print(f"🌐 Fetching data from RentCast for {zip_code} ...")
+    print(f"🌐 Fetching new data from RentCast for ZIP {zip_code}")
+
     url = "https://api.rentcast.io/v1/markets"
-    headers = {"X-Api-Key": api_key, "Accept": "application/json"}
+    headers = {"X-Api-Key": RENTCAST_API_KEY, "Accept": "application/json"}
     params = {"zipCode": zip_code}
 
     response = requests.get(url, headers=headers, params=params)
+
+    # Debug: print full JSON structure
+    try:
+        print("\n🔍 RAW API RESPONSE:", response.json(), "\n")
+    except Exception:
+        print("❌ Could not print JSON response")
+
     if response.status_code != 200:
-        print(f"❌ API error: {response.status_code} {response.text}")
-        return {"error": f"RentCast error {response.status_code}"}
+        return {"error": f"RentCast API error {response.status_code}: {response.text}"}
 
     data = response.json()
-    if isinstance(data, list) and data:
-        market = data[0]
-        rental = market.get("rentalData", {})
-        doc = {
-            "ZipCode": int(zip_code),
-            "City": market.get("city"),
-            "County": market.get("county"),
-            "State": market.get("state"),
-            "LastUpdatedDate": rental.get("lastUpdatedDate", datetime.now().isoformat()),
-            "AverageRent": rental.get("averageRent"),
-            "MedianRent": rental.get("medianRent"),
-            "AverageRentPerSqFt": rental.get("averageRentPerSquareFoot"),
-            "MedianRentPerSqFt": rental.get("medianRentPerSquareFoot")
-        }
-        #----------------------------------------
-        #        Cache/Store in MongoDB
-        #----------------------------------------
-        collection.insert_one(doc)
-        doc["_id"] = str(doc["_id"])
-        return doc
-    else:
-        return {"error": "No data found for that ZIP."}
+    if not isinstance(data, list) or len(data) == 0:
+        return {"error": "No data found for that ZIP code."}
+
+    market = data[0]
+    rental = market.get("rentalData", {}) or {}
+
+    # Build consistent document format
+    doc = {
+        "ZipCode": int(zip_code),
+        "City": market.get("city"),
+        "County": market.get("county"),
+        "State": market.get("state"),
+        "LastUpdatedDate": rental.get("lastUpdatedDate") or datetime.now().isoformat(),
+        "AverageRent": rental.get("averageRent"),
+        "MedianRent": rental.get("medianRent"),
+        "AverageRentPerSqFt": rental.get("averageRentPerSquareFoot"),
+        "MedianRentPerSqFt": rental.get("medianRentPerSquareFoot")
+    }
+
+    # Store in Mongo
+    collection.insert_one(doc)
+    doc["_id"] = str(doc["_id"])
+
+    return doc
 
 
-# ------------------------------------------
-#            AUTHENTICATION ROUTES
-# ------------------------------------------
-
+# ===========================================================
+#   Authentication Routes
+# ===========================================================
 @app.route("/", methods=["GET", "POST"])
 def login():
     """Login page — users log in with username and password."""
     if request.method == "POST":
-        username = request.form.get("username") or ""
+        username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
 
         user = users_collection.find_one({"username": username, "password": password})
-        if user:
-            session["user"] = username
-            session["api_key"] = user.get("api_key")  # store their RentCast key
-            return redirect(url_for("home"))
-        else:
-            return render_template("LoginHibbs.html", error="Invalid credentials!")
+
+        if not user:
+            return render_template("LoginHibbs.html", error="Invalid username or password.")
+
+        session["user"] = username
+        session["zip_list"] = []
+        return redirect(url_for("home"))
 
     return render_template("LoginHibbs.html")
 
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-    """Signup page — new users enter username, password, RentCast API key, and security question."""
+    """
+    Signup page — new users enter username, password, and security question/answer.
+    (Your version does NOT require per-user API keys; it uses the global env key.)
+    """
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
         confirm = request.form.get("confirm_password") or ""
-        api_key = (request.form.get("api_key") or "").strip()
         security_question = request.form.get("security_question") or ""
         security_answer = (request.form.get("security_answer") or "").strip()
 
-
-        #--------  Basic validations   ---------
-
+        # Basic validations
         if not username:
             return render_template("SignUp.html", error="Username is required!")
+
         if password != confirm:
             return render_template("SignUp.html", error="Passwords do not match!")
+
         if users_collection.find_one({"username": username}):
             return render_template("SignUp.html", error="Username already exists!")
-        if not api_key:
-            return render_template("SignUp.html", error="Please provide your RentCast API key!")
+
         if not security_question:
             return render_template("SignUp.html", error="Please select a security question.")
+
         if not security_answer:
             return render_template("SignUp.html", error="Please provide an answer to your security question.")
 
-        # Store user in DB (plaintext for project; hash in real apps)
+        # Store user in DB (plaintext for class project; hash in real apps)
         users_collection.insert_one({
             "username": username,
             "password": password,
-            "api_key": api_key,
-            "security_question": security_question,   # store the key (e.g., "pet")
-            "security_answer": security_answer        # store the answer
+            "security_question": security_question,   # e.g., "pet"
+            "security_answer": security_answer        # their answer
         })
+
         return redirect(url_for("login"))
 
-    return render_template("SignUp.html")
+    # On GET, you might want to pass SECURITY_QUESTIONS to your template
+    return render_template("SignUp.html", security_questions=SECURITY_QUESTIONS)
 
 
 @app.route("/forgot_password", methods=["GET", "POST"])
 def forgot_password():
     """
-    2-step flow:
+    2-step flow using security questions:
     1) User enters username -> we show their security question.
     2) User answers + enters new password -> we verify & update.
     """
@@ -166,15 +189,19 @@ def forgot_password():
             username = (request.form.get("username") or "").strip()
 
             if not username:
-                return render_template("ForgotPassword.html",
-                                       error="Please enter your username.",
-                                       show_reset=False)
+                return render_template(
+                    "ForgotPassword.html",
+                    error="Please enter your username.",
+                    show_reset=False
+                )
 
             user = users_collection.find_one({"username": username})
             if not user:
-                return render_template("ForgotPassword.html",
-                                       error="No account found with that username.",
-                                       show_reset=False)
+                return render_template(
+                    "ForgotPassword.html",
+                    error="No account found with that username.",
+                    show_reset=False
+                )
 
             question_key = user.get("security_question")
             question_text = SECURITY_QUESTIONS.get(question_key, "Your security question.")
@@ -195,21 +222,25 @@ def forgot_password():
             confirm_password = request.form.get("confirm_password") or ""
 
             if not username:
-                return render_template("ForgotPassword.html",
-                                       error="Missing username. Please start again.",
-                                       show_reset=False)
+                return render_template(
+                    "ForgotPassword.html",
+                    error="Missing username. Please start again.",
+                    show_reset=False
+                )
 
             user = users_collection.find_one({"username": username})
             if not user:
-                return render_template("ForgotPassword.html",
-                                       error="No account found with that username.",
-                                       show_reset=False)
+                return render_template(
+                    "ForgotPassword.html",
+                    error="No account found with that username.",
+                    show_reset=False
+                )
 
             question_key = user.get("security_question")
             question_text = SECURITY_QUESTIONS.get(question_key, "Your security question.")
-
-            # Check security answer
             stored_answer = (user.get("security_answer") or "").strip()
+
+            # Validate security answer
             if not security_answer:
                 return render_template(
                     "ForgotPassword.html",
@@ -228,7 +259,7 @@ def forgot_password():
                     show_reset=True
                 )
 
-            # Check passwords
+            # Validate new passwords
             if not new_password or not confirm_password:
                 return render_template(
                     "ForgotPassword.html",
@@ -247,7 +278,7 @@ def forgot_password():
                     show_reset=True
                 )
 
-            # Update password
+            # Update password in DB
             users_collection.update_one(
                 {"_id": user["_id"]},
                 {"$set": {"password": new_password}}
@@ -259,114 +290,8 @@ def forgot_password():
                 show_reset=False
             )
 
-    # GET: just show username form
+    # GET: just show username input
     return render_template("ForgotPassword.html", show_reset=False)
-
-
-@app.route("/home", methods=["GET", "POST"])
-def home():
-    """Main search interface."""
-    if "user" not in session:
-        return redirect(url_for("login"))
-
-    #---------------------------------
-    #        initialize ZIP list
-    #---------------------------------
-    if "zip_list" not in session:
-        session["zip_list"] = []
-
-    error = None
-
-    if request.method == "POST":
-        action = request.form.get("action")
-
-        if action == "add":
-            z = (request.form.get("zipcode") or "").strip()
-            if not ZIP_RE.match(z):
-                error = "Please enter a valid 5-digit ZIP code."
-            elif z in session["zip_list"]:
-                error = f"{z} is already in the list."
-            else:
-                session["zip_list"].append(z)
-                session.modified = True
-
-        elif action == "remove":
-            z = request.form.get("zipcode")
-            if z in session["zip_list"]:
-                session["zip_list"].remove(z)
-                session.modified = True
-
-        elif action and action.startswith("search_single_"):
-            selected_zip = action.replace("search_single_", "")
-
-            api_key = session.get("api_key")
-            if not api_key:
-                return render_template(
-                    "SearchPage.html",
-                    zip_list=session["zip_list"],
-                    error="Missing RentCast API key."
-                )
-
-            result = fetch_or_cache_zip(selected_zip, api_key)
-
-            if result.get("error"):
-                labels = []
-                avg_rents = []
-                median_rents = []
-                multi_results = [result]
-            else:
-                labels = [str(result.get("ZipCode"))]
-                avg_rents = [result.get("AverageRent")]
-                median_rents = [result.get("MedianRent")]
-                multi_results = [result]
-
-            return render_template(
-                "Results.html",
-                multi_results=multi_results,
-                labels=labels,
-                avg_rents=avg_rents,
-                median_rents=median_rents
-            )
-
-        elif action == "search_all":
-            typed_zip = (request.form.get("zipcode") or "").strip()
-
-            if typed_zip:
-                if not ZIP_RE.match(typed_zip):
-                    error = "Please enter a valid 5-digit ZIP code."
-                    return render_template("SearchPage.html",
-                                           zip_list=session["zip_list"],
-                                           error=error)
-                zips = [typed_zip]
-            else:
-                zips = session.get("zip_list", [])
-
-            if not zips:
-                error = "Add at least one ZIP or type a ZIP before searching."
-                return render_template("SearchPage.html",
-                                       zip_list=session["zip_list"],
-                                       error=error)
-
-            api_key = session.get("api_key")
-            if not api_key:
-                return render_template("SearchPage.html",
-                                       zip_list=session["zip_list"],
-                                       error="Missing RentCast API key.")
-
-            results = [fetch_or_cache_zip(z, api_key) for z in zips]
-
-            valid_results = [r for r in results if not r.get("error")]
-            labels = [str(r.get("ZipCode")) for r in valid_results]
-            avg_rents = [r.get("AverageRent") for r in valid_results]
-            median_rents = [r.get("MedianRent") for r in valid_results]
-
-            return render_template("Results.html",
-                                   multi_results=results,
-                                   labels=labels,
-                                   avg_rents=avg_rents,
-                                   median_rents=median_rents)
-
-    return render_template("SearchPage.html", zip_list=session["zip_list"], error=error)
 
 
 @app.route("/logout")
@@ -375,14 +300,111 @@ def logout():
     return redirect(url_for("login"))
 
 
+# ===========================================================
+#   Main Search Interface
+# ===========================================================
+@app.route("/home", methods=["GET", "POST"])
+def home():
+    """Main search interface."""
+    if "user" not in session:
+        return redirect(url_for("login"))
+
+    zip_list = session.get("zip_list", [])
+    error = None
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        entered_zip = (request.form.get("zipcode") or "").strip()
+
+        # Add ZIP
+        if action == "add":
+            if not ZIP_RE.match(entered_zip):
+                error = "Enter a valid 5-digit ZIP."
+            elif entered_zip in zip_list:
+                error = "ZIP already in the list."
+            else:
+                zip_list.append(entered_zip)
+
+        # Remove ZIP
+        elif action == "remove":
+            if entered_zip in zip_list:
+                zip_list.remove(entered_zip)
+
+        # Single ZIP quick search
+        elif action and action.startswith("search_single_"):
+            z = action.replace("search_single_", "")
+            result = fetch_or_cache_zip(z)
+
+            if result.get("error"):
+                return render_template("SearchPage.html", zip_list=zip_list, error=result["error"])
+
+            return render_template(
+                "Results.html",
+                multi_results=[result],
+                labels=[z],
+                avg_rents=[result.get("AverageRent")],
+                median_rents=[result.get("MedianRent")],
+            )
+
+        # Search all ZIPs
+        elif action == "search_all":
+            zips_to_search = zip_list.copy()
+
+            if entered_zip:
+                if ZIP_RE.match(entered_zip):
+                    zips_to_search = [entered_zip]
+                else:
+                    return render_template("SearchPage.html", zip_list=zip_list, error="Invalid ZIP.")
+
+            if not zips_to_search:
+                return render_template("SearchPage.html", zip_list=zip_list, error="Add ZIPs first.")
+
+            results = [fetch_or_cache_zip(z) for z in zips_to_search]
+
+            valid = [r for r in results if not r.get("error")]
+            labels = [str(r["ZipCode"]) for r in valid]
+            avg_rents = [r["AverageRent"] for r in valid]
+            median_rents = [r["MedianRent"] for r in valid]
+
+            return render_template(
+                "Results.html",
+                multi_results=results,
+                labels=labels,
+                avg_rents=avg_rents,
+                median_rents=median_rents,
+            )
+
+        session["zip_list"] = zip_list
+
+    return render_template("SearchPage.html", zip_list=zip_list, error=error)
+
+
+# ===========================================================
+#   Optional API Endpoint
+# ===========================================================
 @app.route("/api/search_zip/<zipcode>")
 def api_search_zip(zipcode):
-    api_key = session.get("api_key")
-    if not api_key:
-        return {"error": "Missing API key"}, 403
-    result = fetch_or_cache_zip(zipcode, api_key)
-    return result
+    # Uses the global API key from env
+    return fetch_or_cache_zip(zipcode)
 
 
+# ===========================================================
+#   PYWEBVIEW Launcher
+# ===========================================================
 if __name__ == "__main__":
-    app.run(debug=True)
+    import threading, time, webview
+
+    def start_flask():
+        app.run(host="127.0.0.1", port=5000, debug=False)
+
+    threading.Thread(target=start_flask, daemon=True).start()
+    time.sleep(1.2)
+
+    webview.create_window(
+        "Hibbs Rental Dashboard",
+        "http://127.0.0.1:5000",
+        width=1200,
+        height=900,
+        resizable=True
+    )
+    webview.start()
