@@ -28,6 +28,8 @@ A Flask-based rental market dashboard for Texas ZIP codes using the RentCast API
 
 ## Project Structure 
 
+```text
+.
 Hibbs-Institute-Capstone/
 │
 ├── Backend/
