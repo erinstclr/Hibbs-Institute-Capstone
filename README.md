@@ -48,7 +48,6 @@ Hibbs-Institute-Capstone/
 │   │   ├── ForgotPassword.html
 │   │   ├── SearchPage.html
 │   │   └── Results.html
-│   ├── static/ (optional)
 │   └── .env                            # Local environment variables (NOT committed to Git)
 │
 ├── README.md
