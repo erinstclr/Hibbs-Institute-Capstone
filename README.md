@@ -26,18 +26,29 @@ A Flask-based rental market dashboard for Texas ZIP codes using the RentCast API
 
 ---
 
-## Project Structure (simplified)
-
-```text
-.
-├── app.py
-├── requirements.txt
+## Project Structure 
+Hibbs-Institute-Capstone/
+│
+├── Backend/
+│   ├── app.py                          # Main Flask application (auth, search, RentCast, webview)
+│   ├── RentCastRequester.py            # Helper script for calling the RentCast API in batch/testing
+│   ├── csv_file_merger.py              # Merges raw CSV rental data into unified datasets
+│   ├── mongodb_csv_file_import.py      # Loads rental CSV data into MongoDB collections
+│   ├── mongodb_python_search.py        # Standalone MongoDB search/query script (CLI)
+│   ├── mongodb_user_login.py           # Initial login prototype (kept for reference)
+│   ├── texas_rent_market_data(in).csv  # Raw rental dataset
+│   ├── texas_rent_market_data_updated.csv # Cleaned/processed rental dataset
+│   ├── texas_zipcode_list.csv          # Formatted list of Texas ZIP codes
+│   ├── templates/
+│   │   ├── LoginHibbs.html
+│   │   ├── SignUp.html
+│   │   ├── ForgotPassword.html
+│   │   ├── SearchPage.html
+│   │   └── Results.html
+│   ├── static/ (optional)
+│   └── .env                            # Local environment variables (NOT committed to Git)
+│
 ├── README.md
-├── .env                # NOT committed to Git
-└── templates/
-    ├── LoginHibbs.html
-    ├── SignUp.html
-    ├── ForgotPassword.html
-    ├── SearchPage.html
-    └── Results.html
-# Hibbs-Institute-Capstone
+├── requirements.txt
+└── .gitignore
+
