@@ -5,6 +5,8 @@ import time
 import json
 import pandas as pd
 from pymongo import MongoClient
+from dotenv import load_dotenv
+import certifi
 
 # ========================================
 # MERGE DATABASE
@@ -52,10 +54,18 @@ def merge_csv_data():
 
 def mongodb_file_upload():
 
-    # MongoDB Connection
-    client = MongoClient("mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbssponsoredproject.unhqzaj.mongodb.net/")
-    db = client["Rentcast"]
-    collection = db["Rentcast_Zipcodes"]
+load_dotenv()  # Loads the .env file
+
+MONGO_URI = os.getenv("MONGO_URI")
+SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "fallback_secret_key")
+
+# Safety checks (optional but helpful)
+if not MONGO_URI:
+    raise ValueError("Missing MONGO_URI in your .env file")
+
+client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+db = client["Rentcast"]
+collection = db["Rentcast_Zipcodes"]
 
     print("Input the CSV file name is: texas_rent_market_data_updated.csv")
     csv_file_path = "texas_rent_market_data_updated.csv"
