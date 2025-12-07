@@ -1,7 +1,19 @@
 from pymongo import MongoClient
+from dotenv import load_dotenv
+import certifi
+import os
 
 # MongoDB connection
-client = MongoClient("mongodb+srv://hibbssponsoredproject_db_user:oJwwztzlmDDddnjc@hibbssponsoredproject.unhqzaj.mongodb.net/")
+load_dotenv()  # Loads the .env file
+
+MONGO_URI = os.getenv("MONGO_URI")
+SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "fallback_secret_key")
+
+# Safety checks (optional but helpful)
+if not MONGO_URI:
+    raise ValueError("Missing MONGO_URI in your .env file")
+
+client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client["Rentcast"]
 collection = db["Rentcast_Zipcodes"]
 
@@ -80,4 +92,5 @@ for doc in results:
 if not found_any:
 
     print("\n No documents found matching your search.")
+
 
