@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RentCast Results</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #f7f9fb;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            background-color: #005f73;
+            color: white;
+            text-align: center;
+            padding: 20px 0;
+        }
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            padding: 25px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #0a9396;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f0f0f0;
+        }
+        tr:hover {
+            background-color: #dff6f0;
+        }
+        .btn {
+            background-color: #0a9396;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .btn:hover {
+            background-color: #007f83;
+        }
+        .no-results {
+            color: #b00020;
+            text-align: center;
+            font-weight: 600;
+        }
+        .chart-container {
+            margin-top: 20px;
+            margin-bottom: 30px;
+        }
+    </style>
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<header>
+    <h1>🏠 RentCast Market Data Results</h1>
+</header>
+
+<div class="container">
+    {% if multi_results and multi_results|length > 0 %}
+
+        <!-- Histogram / Bar Chart -->
+        <div class="chart-container">
+            <h2 style="text-align:center; color:#003d44; margin-bottom:10px;">
+                Rent Distribution by Zip Code
+            </h2>
+            <canvas id="rentHistogram" height="120"></canvas>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Zip Code</th>
+                    <th>City</th>
+                    <th>County</th>
+                    <th>State</th>
+                    <th>Average Rent</th>
+                    <th>Median Rent</th>
+                    <th>Avg Rent / SqFt</th>
+                    <th>Median Rent / SqFt</th>
+                    <th>Last Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in multi_results %}
+                <tr>
+                    <td>{{ r.ZipCode }}</td>
+                    <td>{{ r.City }}</td>
+                    <td>{{ r.County }}</td>
+                    <td>{{ r.State }}</td>
+                    <td>${{ "{:,.0f}".format(r.AverageRent|float) if r.AverageRent else "N/A" }}</td>
+                    <td>${{ "{:,.0f}".format(r.MedianRent|float) if r.MedianRent else "N/A" }}</td>
+                    <td>${{ "{:.2f}".format(r.AverageRentPerSqFt|float) if r.AverageRentPerSqFt else "N/A" }}</td>
+                    <td>${{ "{:.2f}".format(r.MedianRentPerSqFt|float) if r.MedianRentPerSqFt else "N/A" }}</td>
+                    <td>{{ r.LastUpdatedDate or "Unknown" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="no-results">⚠️ No market data available for your search.</p>
+    {% endif %}
+
+    <div style="margin-top:20px; text-align:center;">
+        <a href="{{ url_for('home') }}" class="btn">← Back to Search</a>
+        <a href="{{ url_for('logout') }}" class="btn" style="background-color:#ae2012;">Logout</a>
+    </div>
+</div>
+
+{% if multi_results and multi_results|length > 0 %}
+<script>
+    // Data from Flask (labels and rents)
+    const labels = {{ labels|tojson }};
+    const avgRents = {{ avg_rents|tojson }};
+    const medianRents = {{ median_rents|tojson }};
+
+    const ctx = document.getElementById('rentHistogram').getContext('2d');
+
+    new Chart(ctx, {
+        type: 'bar',  // works as a histogram-style bar chart per ZIP
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Average Rent',
+                    data: avgRents,
+                    borderWidth: 1
+                },
+                {
+                    label: 'Median Rent',
+                    data: medianRents,
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Rent ($)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Zip Code'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true
+                }
+            }
+        }
+    });
+</script>
+{% endif %}
+</body>
+</html>

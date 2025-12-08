@@ -160,17 +160,16 @@ def signup():
         if not security_answer:
             return render_template("SignUp.html", error="Please provide an answer to your security question.")
 
-        # Store user in DB (plaintext for class project; hash in real apps)
+        # Store user (plaintext for class project, hash in real apps)
         users_collection.insert_one({
             "username": username,
             "password": password,
-            "security_question": security_question,   # e.g., "pet"
-            "security_answer": security_answer        # their answer
+            "security_question": security_question,
+            "security_answer": security_answer
         })
 
         return redirect(url_for("login"))
 
-    # On GET, you might want to pass SECURITY_QUESTIONS to your template
     return render_template("SignUp.html", security_questions=SECURITY_QUESTIONS)
 
 
@@ -206,7 +205,7 @@ def forgot_password():
             question_key = user.get("security_question")
             question_text = SECURITY_QUESTIONS.get(question_key, "Your security question.")
 
-            # Show the question + second step inputs
+            # Show question + password reset form
             return render_template(
                 "ForgotPassword.html",
                 username=username,
@@ -214,83 +213,42 @@ def forgot_password():
                 show_reset=True
             )
 
-        # --- STEP 2: SECURITY ANSWER + NEW PASSWORD ---
+        # --- STEP 2: RESET PASSWORD ---
         elif step == "reset":
             username = (request.form.get("username") or "").strip()
             security_answer = (request.form.get("security_answer") or "").strip()
             new_password = request.form.get("new_password") or ""
             confirm_password = request.form.get("confirm_password") or ""
 
-            if not username:
-                return render_template(
-                    "ForgotPassword.html",
-                    error="Missing username. Please start again.",
-                    show_reset=False
-                )
-
             user = users_collection.find_one({"username": username})
             if not user:
+                return render_template("ForgotPassword.html", error="No account found.", show_reset=False)
+
+            if security_answer != (user.get("security_answer") or "").strip():
                 return render_template(
                     "ForgotPassword.html",
-                    error="No account found with that username.",
-                    show_reset=False
-                )
-
-            question_key = user.get("security_question")
-            question_text = SECURITY_QUESTIONS.get(question_key, "Your security question.")
-            stored_answer = (user.get("security_answer") or "").strip()
-
-            # Validate security answer
-            if not security_answer:
-                return render_template(
-                    "ForgotPassword.html",
-                    error="Please enter your security answer.",
                     username=username,
-                    question_text=question_text,
-                    show_reset=True
-                )
-
-            if security_answer != stored_answer:
-                return render_template(
-                    "ForgotPassword.html",
-                    error="Security answer is incorrect.",
-                    username=username,
-                    question_text=question_text,
-                    show_reset=True
-                )
-
-            # Validate new passwords
-            if not new_password or not confirm_password:
-                return render_template(
-                    "ForgotPassword.html",
-                    error="Please enter and confirm your new password.",
-                    username=username,
-                    question_text=question_text,
+                    question_text=SECURITY_QUESTIONS.get(user.get("security_question")),
+                    error="Incorrect security answer.",
                     show_reset=True
                 )
 
             if new_password != confirm_password:
                 return render_template(
                     "ForgotPassword.html",
-                    error="Passwords do not match.",
                     username=username,
-                    question_text=question_text,
+                    question_text=SECURITY_QUESTIONS.get(user.get("security_question")),
+                    error="Passwords do not match.",
                     show_reset=True
                 )
 
-            # Update password in DB
             users_collection.update_one(
                 {"_id": user["_id"]},
                 {"$set": {"password": new_password}}
             )
 
-            return render_template(
-                "ForgotPassword.html",
-                success="Password updated successfully. You can now log in.",
-                show_reset=False
-            )
+            return render_template("ForgotPassword.html", success="Password reset successfully.")
 
-    # GET: just show username input
     return render_template("ForgotPassword.html", show_reset=False)
 
 
@@ -384,27 +342,24 @@ def home():
 # ===========================================================
 @app.route("/api/search_zip/<zipcode>")
 def api_search_zip(zipcode):
-    # Uses the global API key from env
     return fetch_or_cache_zip(zipcode)
 
 
 # ===========================================================
-#   PYWEBVIEW Launcher
+#   Standard Flask Run (PyWebView Removed)
 # ===========================================================
+import webbrowser
+import threading
+import time
+import os
+
+def open_browser():
+    time.sleep(1)
+    webbrowser.open("http://127.0.0.1:5000")
+
 if __name__ == "__main__":
-    import threading, time, webview
+    if not os.environ.get("DISABLE_AUTO_BROWSER"):
+        threading.Thread(target=open_browser, daemon=True).start()
 
-    def start_flask():
-        app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=False)
 
-    threading.Thread(target=start_flask, daemon=True).start()
-    time.sleep(1.2)
-
-    webview.create_window(
-        "Hibbs Rental Dashboard",
-        "http://127.0.0.1:5000",
-        width=1200,
-        height=900,
-        resizable=True
-    )
-    webview.start()
