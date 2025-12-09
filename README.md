@@ -32,7 +32,7 @@ A Flask-based rental market dashboard for Texas ZIP codes using the RentCast API
 .
 Hibbs-Institute-Capstone/
 │
-├── Backend/
+├── Application/
 │   ├── app.py                          # Main Flask application (auth, search, RentCast, webview)
 │   ├── RentCastRequester.py            # Helper script for calling the RentCast API in batch/testing
 │   ├── csv_file_merger.py              # Merges raw CSV rental data into unified datasets
