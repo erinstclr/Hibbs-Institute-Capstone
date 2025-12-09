@@ -1,11 +1,15 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from pymongo import MongoClient
 import certifi
 import requests
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
+
+from rentcast_requester import run_quick_job
+
+
 
 # ===========================================================
 #   Load environment variables
@@ -38,6 +42,26 @@ db = mongo_client["Rentcast"]
 collection = db["Rentcast_Zipcodes"]
 users_collection = db["Users"]
 
+def get_last_pull_date():
+    """
+    Return the most recent LastUpdatedDate from the Rentcast collection, or None.
+    We stored LastUpdatedDate as ISO strings, so sorting as strings works.
+    """
+    doc = collection.find_one(
+        {"LastUpdatedDate": {"$exists": True}},
+        sort=[("LastUpdatedDate", -1)]
+    )
+    if not doc:
+        return None
+
+    last = doc.get("LastUpdatedDate")
+    # Make it a bit nicer for display: keep just the date part if it's ISO
+    if isinstance(last, str) and "T" in last:
+        return last.split("T")[0]
+    return last
+
+
+
 # ZIP validation
 ZIP_RE = re.compile(r"^\d{5}$")
 
@@ -50,6 +74,37 @@ SECURITY_QUESTIONS = {
     "city": "In what city were you born?",
     "nickname": "What was your childhood nickname?"
 }
+
+# How many days before we warn about running the job again
+WARN_DAYS = 30
+
+
+def get_last_pull_date():
+    """
+    Return the most recent LastUpdatedDate in the Rentcast_Zipcodes collection
+    as a datetime, or None if not found / not parseable.
+    """
+    doc = collection.find_one(
+        {"LastUpdatedDate": {"$exists": True}},
+        sort=[("LastUpdatedDate", -1)]
+    )
+    if not doc:
+        return None
+
+    raw = doc.get("LastUpdatedDate")
+    if not raw:
+        return None
+
+    # LastUpdatedDate is stored as ISO string in your pipeline
+    try:
+        if isinstance(raw, datetime):
+            return raw
+        text = str(raw)
+        if text.endswith("Z"):
+            text = text.replace("Z", "+00:00")
+        return datetime.fromisoformat(text)
+    except Exception:
+        return None
 
 
 # ===========================================================
@@ -336,6 +391,54 @@ def home():
 
     return render_template("SearchPage.html", zip_list=zip_list, error=error)
 
+
+# --------------------------------------------
+# Page that shows the "RentCast Data Pull" card
+# --------------------------------------------
+@app.route("/request-zip")
+def request_zip():
+    if "user" not in session:
+        return redirect(url_for("login"))
+    return render_template("Request_Zip.html")
+
+
+# --------------------------------------------
+# Backend endpoint that actually runs the job
+# --------------------------------------------
+@app.route("/run-rentcast", methods=["POST"])
+def run_rentcast():
+    from flask import jsonify  # put at top of file if you prefer
+
+    data = request.get_json(silent=True) or {}
+
+    # API key: from form if provided, otherwise use your .env key
+    api_key = (data.get("apiKey") or "").strip() or RENTCAST_API_KEY
+
+    # NEW: read limit sent from the page
+    raw_limit = data.get("limit")
+    try:
+        limit = int(raw_limit)
+        if limit <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        limit = 5  # fallback default
+
+    # (Optional) you may already have logic here that checks the most recent
+    # request date and returns a "confirm_required" status.
+    # Keep that logic as-is; just make sure when you call run_quick_job,
+    # you pass `limit` instead of a hard-coded 5.
+
+    processed = run_quick_job(
+        api_key=api_key,
+        limit=limit,
+        upload_to_mongo=True
+    )
+
+    return jsonify({
+        "status": "ok",
+        "limit_used": limit,
+        "processed": processed
+    }), 200
 
 # ===========================================================
 #   Optional API Endpoint

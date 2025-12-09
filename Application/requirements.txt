@@ -3,3 +3,6 @@ pymongo
 requests
 python-dotenv
 certifi
+jsonify
+pandas
+tqdm

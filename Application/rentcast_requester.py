@@ -106,9 +106,14 @@ def mongodb_file_upload():
 # CONFIGURATION
 # ============================================
 
-API_KEY = "f3ac30b8896743689167d375ebb63d84"
+# Directory where THIS file lives (Application/ if app.py and this file are side-by-side)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Default key (can be overridden by env or at runtime)
+load_dotenv()
+API_KEY = os.getenv("RENTCAST_API_KEY", "f3ac30b8896743689167d375ebb63d84")
+
 OUTPUT_FILE = os.path.join(os.getcwd(), "texas_rent_market_data.csv")
-ZIP_FILE = os.path.join(os.getcwd(), "texas_zipcodes.csv")
+ZIP_FILE = os.path.join(os.getcwd(), "texas_zipcode_list.csv")
 PROGRESS_FILE = os.path.join(os.getcwd(), "progress.json")
 ERROR_LOG = os.path.join(os.getcwd(), "errors.log")
 
@@ -120,17 +125,26 @@ RETRY_LIMIT = 3
 # ============================================
 
 def load_texas_zipcodes():
-    zip_data = []
-    with open('texas_zipcodes.csv', 'r', encoding='latin-1') as f:
-        reader = csv.DictReader(f)
+    """
+    Load the master list of Texas ZIP codes from texas_zipcode_list.csv,
+    which we expect to be next to rentcast_requester.py.
 
+    CSV header (from your file):
+    ZipCode,City,County,State
+    """
+    zip_data = []
+
+    # Use the configured ZIP_FILE path
+    with open(ZIP_FILE, 'r', encoding='latin-1') as f:
+        reader = csv.DictReader(f)
 
         for row in reader:
             zip_data.append({
-                "ZipCode": row["ZIP Code"].strip(),
+                "ZipCode": row["ZipCode"].strip(),
                 "City": row["City"].strip(),
                 "State": row.get("State", "TX").strip()
             })
+
     return zip_data
 
 # ============================================
@@ -203,6 +217,92 @@ def load_progress():
         with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
             return set(json.load(f).get("done_zips", []))
     return set()
+
+
+
+#ADDED 12/8/2025
+def run_rentcast_job(upload_to_mongo: bool = True):
+    """
+    Non-interactive wrapper for Flask:
+    - Calls merge_csv_data()
+    - Optionally uploads to MongoDB
+    """
+    # Add the zipcodes from the key
+    merge_csv_data()
+
+    if upload_to_mongo:
+        mongodb_file_upload()
+
+
+# ============================================
+# QUICK JOB FOR FLASK (small batch)
+# ============================================
+
+def run_quick_job(api_key: str, limit: int = 5, upload_to_mongo: bool = True) -> int:
+    """
+    Small non-interactive batch used by Flask.
+
+    - Overrides the global API_KEY with the user-provided api_key
+    - Processes up to `limit` new ZIP codes (based on progress.json)
+    - Updates texas_rent_market_data.csv
+    - Optionally calls merge_csv_data() + mongodb_file_upload()
+    - Returns how many ZIPs were processed.
+    """
+    global API_KEY
+    API_KEY = api_key  # override for this run
+
+    zip_list = load_texas_zipcodes()
+    done_zips = load_progress()
+    rows = []
+
+    # Load existing CSV rows if any
+    if os.path.exists(OUTPUT_FILE):
+        with open(OUTPUT_FILE, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+    processed = 0
+
+    for zip_info in zip_list:
+        zip_code = zip_info["ZipCode"]
+        if zip_code in done_zips:
+            # already done in some previous run
+            continue
+
+        data = get_market_data(zip_code)
+        if data:
+            row = flatten_market_data(zip_info, data)
+            rows.append(row)
+            print(f"✅ QUICK ({len(done_zips)+1}/{len(zip_list)}) {zip_code} — {zip_info['City']}")
+        else:
+            with open(ERROR_LOG, "a", encoding="utf-8") as err:
+                err.write(f"{zip_code},{zip_info['City']},No data or error\n")
+
+        done_zips.add(zip_code)
+        processed += 1
+
+        # Save CSV and progress after each ZIP in quick mode
+        if rows:
+            with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(rows)
+
+        save_progress(done_zips)
+
+        if processed >= limit:
+            break
+
+        time.sleep(DELAY_BETWEEN_CALLS)
+
+    # Optional: merge and upload to MongoDB
+    if upload_to_mongo and processed > 0:
+        merge_csv_data()
+        mongodb_file_upload()
+
+    return processed
+
+
 
 # ============================================
 # Main Loop

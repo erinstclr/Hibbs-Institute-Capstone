@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RentCast Data Pull</title>
+
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #005f73, #0a9396);
+            --card-bg: #ffffff;
+            --text-color: #003d44;
+            --input-bg: #ffffff;
+            --input-border: #c7c7c7;
+            --link-color: #005f73;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-gradient);
+        }
+
+        .card {
+            background: var(--card-bg);
+            color: var(--text-color);
+            padding: 35px 40px;
+            width: 100%;
+            max-width: 450px;
+            border-radius: 14px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 25px;
+            color: var(--link-color);
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 18px;
+            font-size: 16px;
+            border-radius: 10px;
+            border: 1px solid var(--input-border);
+            background: var(--input-bg);
+            color: var(--text-color);
+        }
+
+        input:focus {
+            border-color: #0a9396;
+            outline: none;
+            box-shadow: 0 0 5px rgba(10,147,150,0.4);
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #0a9396;
+            color: white;
+            font-size: 17px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #007f83;
+        }
+
+        .progress-wrapper {
+            width: 100%;
+            background: #ddd;
+            border-radius: 10px;
+            margin-top: 18px;
+        }
+
+        .progress-bar {
+            height: 20px;
+            width: 0%;
+            background: #0a9396;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .msg {
+            margin-top: 12px;
+            text-align: center;
+            font-size: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>📊 RentCast Data Pull</h1>
+
+    <label>Enter RentCast API Key:</label>
+    <input type="text" id="apiKey" placeholder="API Key" />
+
+    
+    <label>How many ZIP codes should I pull?</label>
+    <input type="text" id="limit" placeholder="e.g. 5 (default is 5)" />
+
+    <button id="runBtn">Run RentCast Script</button>
+
+    <!-- Return to Search Page -->
+    <a href="/home" style="text-decoration:none;">
+        <button type="button" style="margin-top:15px; background-color:#0077aa; color:white;">
+            ⬅ Back to Search Page
+        </button>
+    </a>
+
+    <div class="progress-wrapper">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <p class="msg" id="message"></p>
+</div>
+
+<script>
+    const runBtn = document.getElementById("runBtn");
+    const progressBar = document.getElementById("progressBar");
+    const message = document.getElementById("message");
+
+    let running = false;
+
+    runBtn.addEventListener("click", async () => {
+        if (running) {
+            // Prevent double-clicks
+            return;
+        }
+
+        const apiKey = document.getElementById("apiKey").value.trim();
+        const limitText = document.getElementById("limit").value.trim();
+        let limit = 5;  // default
+
+        // Validate limit
+        if (limitText !== "") {
+            const parsed = parseInt(limitText, 10);
+            if (isNaN(parsed) || parsed <= 0) {
+                message.textContent = "Please enter a positive number for how many ZIP codes to pull.";
+                return;
+            }
+            limit = parsed;
+        }
+
+        if (!apiKey) {
+            message.textContent = "Please enter your API key first.";
+            return;
+        }
+
+        running = true;
+        runBtn.disabled = true;
+        runBtn.textContent = "Running...";
+        progressBar.style.width = "20%";
+        message.textContent = "Running quick refresh...";
+
+        try {
+            const response = await fetch("/run-rentcast", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ apiKey: apiKey, limit: limit })
+            });
+
+            if (!response.ok) {
+                message.textContent = "Server error running RentCast job.";
+                progressBar.style.width = "0%";
+                return;
+            }
+
+            const data = await response.json();
+
+            if (!data || data.status !== "ok") {
+                message.textContent = (data && data.error) || "Error running RentCast job.";
+                progressBar.style.width = "0%";
+                return;
+            }
+
+            progressBar.style.width = "100%";
+            message.textContent =
+                `Quick refresh completed. Processed ${data.processed} ZIP code(s). ` +
+                `(Limit used: ${data.limit_used}).`;
+
+        } catch (err) {
+            console.error(err);
+            message.textContent = "Unexpected error talking to the server.";
+            progressBar.style.width = "0%";
+        } finally {
+            running = false;
+            runBtn.disabled = false;
+            runBtn.textContent = "Run RentCast Script";
+        }
+    });
+</script>
+
+
+</body>
+</html>
