@@ -54,18 +54,18 @@ def merge_csv_data():
 
 def mongodb_file_upload():
 
-load_dotenv()  # Loads the .env file
+    load_dotenv()  # Loads the .env file
 
-MONGO_URI = os.getenv("MONGO_URI")
-SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "fallback_secret_key")
+    MONGO_URI = os.getenv("MONGO_URI")
+    SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "fallback_secret_key")
 
-# Safety checks (optional but helpful)
-if not MONGO_URI:
-    raise ValueError("Missing MONGO_URI in your .env file")
+    # Safety checks (optional but helpful)
+    if not MONGO_URI:
+        raise ValueError("Missing MONGO_URI in your .env file")
 
-client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
-db = client["Rentcast"]
-collection = db["Rentcast_Zipcodes"]
+    client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+    db = client["Rentcast"]
+    collection = db["Rentcast_Zipcodes"]
 
     print("Input the CSV file name is: texas_rent_market_data_updated.csv")
     csv_file_path = "texas_rent_market_data_updated.csv"
